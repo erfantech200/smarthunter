@@ -6,8 +6,8 @@ The phases and their Definitions of Done come from SPEC §23. This file tracks s
 
 | Phase | Scope | Status |
 |---|---|---|
-| 0 | Discovery, plan, scaffold | **Done — awaiting your approval and answers to the open questions below** |
-| 1 | Market data (real-time + history), integrity gate, production guard | Next |
+| 0 | Discovery, plan, scaffold | **Done**, approved 2026-11-01 |
+| 1 | Market data (real-time + history), integrity gate, production guard | **Code done and tested offline. Live checks pending your keys** (see below) |
 | 2 | Technical engine + charts (no LLM) | — |
 | 3 | My Book core (usable early) | — |
 | 4 | Strategy Lab (all styles) | — |
@@ -46,17 +46,12 @@ Then open http://127.0.0.1:3000. It shows service health (the stream is `idle`, 
 - Provider prices could only be checked through search excerpts, because the build sandbox couldn't open provider sites (see PROVIDERS.md). Rows marked *unverified* need a check on the official page.
 - The CI workflow is written but has not run on GitHub yet. It runs on the first push.
 
-## Open questions (one batch — architecture, money and risk only)
-
-1. **LLM budget.** What's your hard cap for `llm.monthly_budget_usd`? The estimates are about $133 (lean), $451 (spec default) and $996 (heavy) per month (COSTS.md). My recommendation: **$250 cap, A9 on Sonnet first** with an Opus shadow sample, then decide from A11 data.
-2. **Data budget and price feed.** Do you approve **ADR-006**: OANDA practice stream as the primary feed (free), Twelve Data Basic as the cross-check (free), Dukascopy ticks for backtests (free, licence to confirm) and an **FMP** plan with the economic calendar (about $29–69)? Do you want to pay for anything beyond that now? The options are Twelve Data Pro as a backup stream (about $191–229) or Databento CME for oil term structure (≥ $199). My recommendation: **no, not yet.**
-3. **Hosting.** Where should the VPS live, and which provider?
-   - (a) **Sydney** (Vultr/DigitalOcean): lowest latency to your phone, about 250 ms to the feed.
-   - (b) **London/Frankfurt** (Hetzner/OVH): closest to the FX liquidity and feed, cheapest, about 250 ms to your phone.
-
-   Push delivery dominates alert latency either way (SPEC §20). My recommendation: **(b)**, because it is cheaper for the same specs and the 5-second budget is easily met. Private access via **Tailscale** (recommended) or Cloudflare Access?
-4. **Starting balance** (`account.starting_balance`, USD). It's needed before My Book goes live in Phase 3.
-5. **Quiet hours vs the London/NY overlap.** From November to March, 01:00–07:00 Melbourne mutes two of the three overlap hours and the whole NY afternoon (STYLES.md). Should this stay as is, move to 03:00–09:00, or should intraday entry alerts be exempt for A-grade setups?
+## Phase 0 decisions (owner, 2026-11-01)
+1. **LLM budget:** $250/month cap. A9 on Sonnet with a 10% Opus shadow sample (ADR-013).
+2. **Data:** OANDA practice (primary), Twelve Data Basic (cross-check), Dukascopy ticks (licence still to confirm), an FMP plan with the economic calendar. Nothing more for now. Data budget $70/month (ADR-006).
+3. **Hosting:** EU VPS (London/Frankfurt) + Tailscale (ADR-012).
+4. **Starting balance: still open.** No recommendation was given, so nothing was assumed. Needed before Phase 3.
+5. **Quiet hours vs the London/NY overlap: still open.** No recommendation was given, so the config is unchanged (01:00–07:00). Scalping is in shadow mode, so nothing is lost until it's promoted.
 
 ## Spec issues found (SPEC §24.8) and proposed fixes
 1. **The stream feed is throttled, so "live bars match the provider's bars" can't be exact** (OANDA sends about 4 updates per second per instrument). *Fix:* the Phase 1 DoD uses a tolerance (OHLC within 1 typical spread, close exact on M5+), and gaps are measured against OANDA's own candles.
@@ -67,7 +62,86 @@ Then open http://127.0.0.1:3000. It shows service health (the stream is `idle`, 
 6. **Cost concentration in A9.** The spec puts Opus on every synthesis. *Fix (proposed):* start on Sonnet with an Opus shadow sample, and let A11 decide (COSTS.md).
 7. **The economic calendar is the only unavoidable paid data item.** Without consensus values, surprise-based logic is disabled and shown as a data gap rather than guessed (SPEC §3.2). This needs your choice in question 2.
 
-## What Phase 1 needs from you
-- Approval of this plan and ADR-006.
-- An OANDA **practice** account token and account ID. Free; steps in PROVIDERS.md §6.
-- A Twelve Data Basic key and a FRED key. Both free.
+## Phase 1 — Market data and integrity
+
+### What was built
+- **Domain:** `Quote` and `Bar` types (bid/ask, `Decimal` verbatim from provider strings, UTC enforced). Timeframes M1…W1 aligned like OANDA's candles (ADR-014).
+- **Config:**
+  - `config/market.yaml`: source symbol maps, market hours, sessions, backfill depths, integrity thresholds, reconciliation tolerances.
+  - `config/broker_profiles/generic.yaml`: SPEC §9.3 defaults, all `confirmed: false`.
+- **Market hours** (DST-aware per home timezone), **session buckets**, and a rule-based **holiday calendar** used to explain gaps.
+- **Adapters** (`app/data/adapters/`), all behind typed errors. Network failures become `AdapterError`, and a missing key means `AdapterNotConfigured`, which leaves the service idle rather than guessing.
+  - OANDA v20, read-only: streaming, paged bid/ask candles, instrument list.
+  - Twelve Data price, for the cross-check.
+  - FRED observations with first-release timestamps (point in time).
+  - Dukascopy `.bi5` decoder. Downloads stay locked until you confirm the licence.
+- **Stream service:**
+  - The consumer reconnects with backoff.
+  - The **watchdog** goes CRITICAL immediately on disconnect, and on silence over 15 s. It goes DEGRADED on stale instruments, wide or crossed spreads, and unconfirmed outliers.
+  - The **bar builder** turns quotes into M1, and M1 into M5, M15, H1, H4, D1 and W1. A bar is emitted only after its close.
+  - Outputs go to Redis streams and keys and to Postgres (ticks plus `source=stream` candles).
+- **Storage:** migration `0002` creates instruments, broker_profiles, instrument_specs, symbol_map, ticks (hypertable, compressed after 2 days, deleted after 90), candles (hypertable, compressed after 60 days), spreads_by_session, macro_series and integrity_reports. Readers are point-in-time.
+- **Jobs**, scheduled by idempotent slot IDs: integrity every minute, cross-source check every 3 minutes, backfill and reconciliation hourly, FRED, spreads and gap reports daily. Outlier confirmations go out immediately.
+- **Data Integrity Gate:** `IntegrityReport {status, issues[], stale_sources[]}`, combining stream, cross-source and macro freshness. Gap and reconciliation reports are stored separately.
+- **API:**
+  - `/market/status`, `/market/quotes`, `/market/bars/{symbol}/{tf}?as_of=`, `/market/coverage`, `/market/spreads`, `/market/reports/{kind}`
+  - `/settings/broker-profiles`
+- **CLI and Make targets:** `check-sources`, `seed`, `backfill`, `macro`, `spreads`, `gaps`, `reconcile`, `coverage`, `integrity`, `record-stream`, `disconnect-drill`.
+- **UI:** the overview shows integrity status, per-asset mid, spread and quote age, and the stream state. Missing data shows as missing.
+
+### DoD status
+| DoD item (SPEC §23 Phase 1) | Offline evidence (this build) | Live check (needs keys) |
+|---|---|---|
+| Live bars match the provider's bars | `reconcile()` tests. Builder OHLC, roll-up and determinism tests | `make reconcile` after ≥ 6 h of streaming + hourly M1 backfill. Must pass the ADR-016 tolerances |
+| Complete history per instrument × TF | Resumable, idempotent backfill tested against TimescaleDB | `make backfill`, then `make coverage` |
+| Gap report clean or explained | Gap report tests (quiet runs vs gaps, weekends, holidays, edge of hours) | `make gaps DAYS=30`: every gap must have an explanation, or a config fix |
+| Cross-source check passes | `cross_source_check` tests | `make integrity` shows no `cross_source` issues during open hours |
+| Lookahead test passes | ✅ Hypothesis property test (bars at t are identical with or without later data). Emission never precedes `close_time`. Point-in-time DB reads. FRED published at end of first-release day | — |
+| Stream disconnect detected within seconds | ✅ Watchdog tests: CRITICAL immediately on disconnect, ≤ 15 s on silence. The feed consumer replay test ends in CRITICAL | `make disconnect-drill` (the container loses its network: detection ≤ 15 s via the stale status) |
+| Production guard | ✅ (Phase 0) | — |
+
+**Tests:** see the commit. The backend suite includes 6 database tests that run against a real TimescaleDB (the compose db locally, a service container in CI). ruff and `mypy --strict` are clean, and `make up` boots every service healthy. With no keys, the stream reports idle, and the integrity status is CRITICAL with the reason "stream service is not reporting". That is the correct state.
+
+### Phase 1 live checks (run these once the keys are in `.env`)
+```bash
+make up
+```
+```bash
+make check-sources
+```
+```bash
+make backfill
+```
+```bash
+make macro
+```
+```bash
+make spreads
+```
+After the stream has run for at least 6 hours on a weekday:
+```bash
+make reconcile
+```
+```bash
+make gaps DAYS=30
+```
+```bash
+make disconnect-drill
+```
+```bash
+make record-stream SECONDS=600
+```
+The last command saves a real stream recording for the replay tests. Commit it. Then send me the outputs, or just tell me which checks failed. Phase 1 closes when all of them pass, or when each failure is explained and fixed in config.
+
+### Known limitations
+- **Not yet run against the real providers.** The build sandbox can't reach them. Several provider facts are unverified (PROVIDERS.md §7), and the live checks above are the verification.
+- **Trading hours** for metals, WTI and Brent come from unofficial excerpts. The gap report will show any mismatch.
+- **Dukascopy** downloads are disabled until you read and accept its licence (`config/market.yaml → sources.dukascopy.terms_accepted`).
+- **FRED covers US series only.** DE/UK/JP yields and the US–DE/UK/JP spreads arrive with A2 in Phase 6.
+- **Broker specs** are unconfirmed defaults (oil contract size especially). A7 will refuse to size on unconfirmed specs (Phase 3).
+- **The gap report** walks every minute in the window. That's fine for 30 days, but slow for multi-year windows (optimise if needed).
+- **LLM budget:** the spec cadence is estimated above the $250 cap (COSTS.md). It gets re-planned in Phase 5 from measured tokens.
+
+### What Phase 2 needs from you
+- The keys above and the live-check results, so Phase 1 can close. Phase 2 code (technical engine, charts) can proceed in parallel, because it runs on stored bars.
+- Optional: the starting balance and the quiet-hours choice (Phase 0 decisions 4 and 5). Both are needed by Phase 3.

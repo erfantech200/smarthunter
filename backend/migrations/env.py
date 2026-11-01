@@ -9,8 +9,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import get_settings
-
-target_metadata = None
+from app.data.tables import metadata as target_metadata
 
 
 def _run(connection: Connection) -> None:

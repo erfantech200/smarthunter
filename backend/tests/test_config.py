@@ -62,3 +62,10 @@ def test_secrets_never_render(tmp_path: Path) -> None:
     assert "very-secret" not in repr(s)
     assert "very-secret" not in s.model_dump_json()
     assert s.provider_key_status()["anthropic_api_key"] is True
+
+
+def test_empty_env_values_mean_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FRED_API_KEY", "")
+    monkeypatch.setenv("OANDA_ACCOUNT_ID", "   ")
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.fred_api_key is None and s.oanda_account_id is None

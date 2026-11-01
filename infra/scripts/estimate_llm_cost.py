@@ -139,6 +139,18 @@ SCENARIOS = [
         notes="news every 2h, 4 runs/day + ~3 event reruns, Opus for A9",
     ),
     Scenario(
+        "Approved setup",
+        news_cycles_per_day=12,
+        triage_clusters_per_cycle=120,
+        deep_clusters_per_cycle=8,
+        brief_change_rate=D("0.5"),
+        pipeline_runs_per_day=4,
+        event_reruns_per_day=3,
+        short_circuit_rate=D("0.4"),
+        synthesis_tier="sonnet",
+        notes="spec cadence with A9 on Sonnet (approved 2026-11-01); the 10% Opus shadow sample adds ≈ $18",
+    ),
+    Scenario(
         "Heavy",
         news_cycles_per_day=18,
         triage_clusters_per_cycle=200,

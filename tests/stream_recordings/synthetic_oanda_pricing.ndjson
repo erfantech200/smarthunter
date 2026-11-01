@@ -1,0 +1,8 @@
+{"type":"PRICE","time":"2026-11-04T13:00:00.123456789Z","bids":[{"price":"1.08012","liquidity":1000000}],"asks":[{"price":"1.08020","liquidity":1000000}],"closeoutBid":"1.08012","closeoutAsk":"1.08020","tradeable":true,"instrument":"EUR_USD"}
+{"type":"PRICE","time":"2026-11-04T13:00:00.400000000Z","bids":[{"price":"2650.115","liquidity":100}],"asks":[{"price":"2650.415","liquidity":100}],"closeoutBid":"2650.115","closeoutAsk":"2650.415","tradeable":true,"instrument":"XAU_USD"}
+{"type":"HEARTBEAT","time":"2026-11-04T13:00:05.000000000Z"}
+
+{"type":"PRICE","time":"2026-11-04T13:00:06.000000000Z","bids":[],"asks":[],"tradeable":false,"instrument":"EUR_USD"}
+{"type":"PRICE","time":"2026-11-04T13:00:06.500000000Z","bids":[{"price":"1.1","liquidity":1}],"asks":[{"price":"1.2","liquidity":1}],"tradeable":true,"instrument":"AUD_NZD"}
+{"type":"PRICE","time":"2026-11-04T13:01:00.250000000Z","bids":[{"price":"1.08015","liquidity":1000000}],"asks":[{"price":"1.08023","liquidity":1000000}],"closeoutBid":"1.08015","closeoutAsk":"1.08023","tradeable":true,"instrument":"EUR_USD"}
+{"type":"HEARTBEAT","time":"2026-11-04T13:01:05.000000000Z"}

@@ -1,0 +1,104 @@
+# Market-data configuration (Phase 1). Validated by backend/app/data/market_config.py.
+# Values marked "unverified" come from search excerpts (docs/PROVIDERS.md). The gap report flags
+# them if they are wrong, so a mistake shows up as an explained/unexplained gap, never as silent bad data.
+
+primary_price_source: oanda
+
+sources:
+  oanda:
+    # Internal symbol -> OANDA instrument. Confirm the oil CFDs appear in your account's instrument list.
+    symbols: { XAUUSD: XAU_USD, XAGUSD: XAG_USD, EURUSD: EUR_USD, GBPUSD: GBP_USD, USDJPY: USD_JPY, WTI: WTICO_USD, BRENT: BCO_USD }
+    stream_reconnect_max_backoff_seconds: 30
+  twelvedata:
+    symbols: { XAUUSD: XAU/USD, XAGUSD: XAG/USD, EURUSD: EUR/USD, GBPUSD: GBP/USD, USDJPY: USD/JPY, WTI: WTI/USD, BRENT: XBR/USD }
+    # Basic plan: 8 credits/min, 800/day (unverified). 1 symbol every 180 s = 480 credits/day.
+    cross_check: { symbols: [EURUSD], interval_seconds: 180 }
+  dukascopy:
+    # Licence terms are NOT confirmed yet (docs/PROVIDERS.md §2.3). Downloads refuse to run until this is true.
+    terms_accepted: false
+    symbols: { XAUUSD: XAUUSD, XAGUSD: XAGUSD, EURUSD: EURUSD, GBPUSD: GBPUSD, USDJPY: USDJPY, WTI: LIGHT.CMDUSD, BRENT: BRENT.CMDUSD }
+    price_divisor: { XAUUSD: 1000, XAGUSD: 1000, EURUSD: 100000, GBPUSD: 100000, USDJPY: 1000, WTI: 1000, BRENT: 1000 }
+  fred:
+    # Macro reference series for A2 (SPEC §6). DE/UK/JP yields come from the ECB/BoE/MoF adapters in Phase 6.
+    series:
+      DGS2: US 2-year Treasury yield
+      DGS10: US 10-year Treasury yield
+      DFII10: US 10-year TIPS real yield
+      T10YIE: US 10-year breakeven inflation
+      DTWEXBGS: Nominal broad US dollar index
+      VIXCLS: CBOE VIX close
+      BAMLH0A0HYM2: ICE BofA US high-yield OAS
+    # FRED releases daily market series the next US business day; published_at is set to the end of the
+    # first-release date (America/Chicago) so nothing is ever visible before it was really available.
+    backfill_start: "2010-01-01"
+
+# Trading hours per instrument in the instrument's home timezone (unverified; OANDA hours-of-operation).
+# weekly_open / weekly_close: [weekday, "HH:MM"]. daily_breaks apply between open and close on trading days.
+market_hours:
+  fx:
+    instruments: [EURUSD, GBPUSD, USDJPY]
+    tz: America/New_York
+    weekly_open: [sun, "17:00"]
+    weekly_close: [fri, "17:00"]
+    daily_breaks: []
+  metals:
+    instruments: [XAUUSD, XAGUSD]
+    tz: America/New_York
+    weekly_open: [sun, "18:05"]
+    weekly_close: [fri, "16:59"]
+    daily_breaks: [["16:59", "18:05"]]
+  wti:
+    instruments: [WTI]
+    tz: America/New_York
+    weekly_open: [sun, "18:00"]
+    weekly_close: [fri, "16:59"]
+    daily_breaks: [["16:59", "18:00"]]
+  brent:
+    instruments: [BRENT]
+    tz: Europe/London
+    weekly_open: [sun, "23:01"]
+    weekly_close: [fri, "21:59"]
+    daily_breaks: [["21:59", "22:05"]]
+
+# FX rollover (thin liquidity, wide spreads) — tracked as its own spread bucket.
+rollover: { tz: America/New_York, start: "16:55", end: "17:15" }
+
+# Session windows (home timezone, DST-aware). Spread statistics are bucketed by these.
+sessions:
+  asia:      { tz: Asia/Tokyo,       start: "09:00", end: "18:00" }
+  london:    { tz: Europe/London,    start: "08:00", end: "17:00" }
+  new_york:  { tz: America/New_York, start: "08:00", end: "17:00" }
+# Opening windows used by style session filters (SPEC §2 styles.scalp.sessions).
+session_windows:
+  tokyo_open:        { tz: Asia/Tokyo,       start: "09:00", end: "10:30" }
+  london_open:       { tz: Europe/London,    start: "08:00", end: "09:30" }
+  new_york_open:     { tz: America/New_York, start: "08:00", end: "09:30" }
+  london_ny_overlap: { tz: America/New_York, start: "08:00", end: "16:00", end_tz: Europe/London }  # NY open → London close
+
+backfill:
+  # Provider candles fetched directly per timeframe (bid + ask). start = earliest date requested.
+  timeframes:
+    M1:  { start_days_ago: 730 }
+    M5:  { start: "2018-01-01" }
+    M15: { start: "2015-01-01" }
+    H1:  { start: "2010-01-01" }
+    H4:  { start: "2010-01-01" }
+    D1:  { start: "2005-01-01" }
+    W1:  { start: "2005-01-01" }
+  page_size: 5000   # OANDA maximum per request (verified, official docs)
+
+integrity:
+  stream_heartbeat_critical_seconds: 15   # no message on the stream for this long → CRITICAL, fast engine halts
+  quote_stale_seconds: 120                # open market, no quote for one instrument → DEGRADED
+  cross_check_max_age_seconds: 900
+  cross_check_tolerance_spreads: 3        # |primary mid − second source| ≤ 3 × typical spread
+  outlier_k_atr: 8                        # tick move > k × ATR(M1,14) needs second-source confirmation
+  spread_max_multiple: 5                  # live spread > 5 × typical → DEGRADED for that instrument
+  gap_min_missing_m1: 5                   # shorter runs of missing M1 bars inside open hours are "quiet", not gaps
+  macro_stale_days: 5
+
+# Live bars built from the (throttled) stream vs the provider's own candles (Phase 1 DoD).
+reconciliation:
+  min_close_match_rate: 0.95              # share of bars whose close matches exactly
+  high_low_tolerance_spreads: 1.0         # high/low may differ by at most this many typical spreads
+  min_high_low_within_tolerance: 0.99

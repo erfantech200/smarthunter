@@ -16,7 +16,7 @@ assets:
   - { symbol: BRENT,  name: "Crude oil Brent", asset_class: energy, quote_ccy: USD }
 
 broker: undecided              # no broker API, ever (SPEC §3.10)
-market_data_provider: tbd      # Phase 0 recommendation: oanda_v20 (see docs/PROVIDERS.md) — awaiting approval
+market_data_provider: oanda_v20 # approved 2026-11-01 (ADR-006); cross-check twelvedata; details in config/market.yaml
 
 styles:
   scalp:
@@ -87,8 +87,10 @@ llm:
   models:                      # verified against the Anthropic model list on 2026-11-01 (docs/PROVIDERS.md)
     triage: claude-haiku-5-5
     analysis: claude-sonnet-5-5
-    synthesis: claude-opus-5-5
-  monthly_budget_usd: null     # OPEN QUESTION (Phase 0) — hard cap; see docs/COSTS.md for options
+    synthesis: claude-sonnet-5-5         # approved 2026-11-01: A9 starts on Sonnet (ADR-013)
+    synthesis_shadow: claude-opus-5-5    # Opus runs as a shadow on a sample; A11 decides on promotion
+    synthesis_shadow_sample_rate: 0.1
+  monthly_budget_usd: 250      # approved 2026-11-01 — hard cap (SPEC §17 budget guard)
 
-data_budget_usd_month: null    # OPEN QUESTION (Phase 0) — see docs/PROVIDERS.md for options
-hosting: vps_docker
+data_budget_usd_month: 70      # approved 2026-11-01: free feeds + FMP plan with the economic calendar
+hosting: vps_docker            # approved 2026-11-01: London/Frankfurt VPS + Tailscale (ADR-012)

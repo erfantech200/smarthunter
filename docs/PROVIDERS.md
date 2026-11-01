@@ -10,7 +10,7 @@ SPEC §10 and §24.4: verify every external API against its current official doc
 - **Before each integration phase**, the adapter's PR re-checks that provider's official docs, pricing, rate limits, terms and Australian availability, and updates this file with the date. That's the rule from §24.4. A row here isn't approval to integrate.
 - **Anthropic** figures come from Anthropic's model and pricing reference, cached 2026-10-06 and current as of 2026-11-01.
 
-## 1. Recommended stack (pending your approval)
+## 1. Approved stack (owner approval 2026-11-01)
 
 | Need | Recommendation | Monthly cost | Status |
 |---|---|---|---|
@@ -107,3 +107,20 @@ Features we'll use, with their current parameter names:
 | 5/6 | `FMP_API_KEY` | financialmodelingprep.com → plan that includes the economic calendar | Paid |
 | 6 | `EIA_API_KEY` | eia.gov/opendata | Free |
 | 6 | `CFTC_SOCRATA_APP_TOKEN` (optional) | publicreporting.cftc.gov → developer settings | Free |
+
+## 7. Phase 1 integration notes (checked 2026-11-01)
+
+The build sandbox still can't reach provider hosts (`api-fxpractice.oanda.com`, `api.twelvedata.com`, `api.stlouisfed.org`, `datafeed.dukascopy.com` are all blocked by its network policy). Everything below was checked through search results of the official docs, and the code was tested against recorded/synthetic wire formats. **The first live run on your machine or VPS is the real verification** (PLAN.md → Phase 1 live checks).
+
+| Item | What the code assumes | Status |
+|---|---|---|
+| OANDA candles `count` | maximum 5000 per request, `count` must not be combined with both `from` and `to` | Verified (official) |
+| OANDA candle alignment defaults | `dailyAlignment=17`, `alignmentTimezone=America/New_York`, `weeklyAlignment=Friday`, times returned in UTC | Verified (official). Sent explicitly anyway |
+| OANDA `price=BA` | bid and ask OHLC per candle | Official example uses it |
+| OANDA candle paging | `from` + `count`, then `includeFirst=false` from the last candle | From OANDA docs/SDKs. The live backfill will confirm |
+| OANDA stream messages | `PRICE` (with `bids[]`, `asks[]`, `tradeable`) and `HEARTBEAT` | Verified (official definitions). `status` is deprecated and ignored |
+| OANDA heartbeat cadence | about 5 s (one sample) | **Unverified.** The watchdog's CRITICAL threshold is 15 s, so a 10 s cadence would still be fine |
+| OANDA trading hours | FX Sun 17:00–Fri 17:00 NY; metals daily break 16:59–18:05 NY; WTI 16:59–18:00 NY; Brent break 21:59–22:05 London | **Unverified** (regional pages and mirrors). Wrong values show up as "edge of hours" in the gap report, and are fixed in `config/market.yaml` |
+| Twelve Data `/price` | `{"price": "…"}` with no timestamp; errors arrive as HTTP 200 with `status: error` | From docs/SDKs. Unverified live |
+| FRED observations | `output_type=4` (initial release) and `realtime_start` as the first-publication date | From FRED API docs (well documented). Unverified live |
+| Dukascopy `.bi5` | LZMA-alone, 20-byte big-endian records, zero-based month in URL; oil paths `LIGHT.CMDUSD` / `BRENT.CMDUSD` | **Unverified**, and **licence not confirmed**. Downloads are disabled (`terms_accepted: false`) |

@@ -9,6 +9,8 @@ from typing import Any
 from fastapi import FastAPI, Response, status
 from redis.asyncio import Redis
 
+from app.api.market import router as market_router
+from app.api.market import settings_router
 from app.core import heartbeat
 from app.core.config import get_desk_config, get_settings
 from app.core.db import REQUIRED_EXTENSIONS, get_engine, installed_extensions
@@ -31,7 +33,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await get_engine().dispose()
 
 
-app = FastAPI(title="Trade Desk", version="0.0.1", lifespan=lifespan)
+app = FastAPI(title="Trade Desk", version="0.1.0", lifespan=lifespan)
+app.include_router(market_router)
+app.include_router(settings_router)
 
 
 @app.get("/health")

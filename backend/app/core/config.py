@@ -59,6 +59,26 @@ class Settings(BaseSettings):
     telegram_chat_id: str | None = None
     app_secret_key: SecretStr | None = None  # signs expiring "I took it" deep links (Phase 3)
 
+    @field_validator(
+        "anthropic_api_key",
+        "oanda_api_token",
+        "oanda_account_id",
+        "twelve_data_api_key",
+        "fred_api_key",
+        "eia_api_key",
+        "fmp_api_key",
+        "finnhub_api_key",
+        "cftc_socrata_app_token",
+        "telegram_bot_token",
+        "telegram_chat_id",
+        "app_secret_key",
+        mode="before",
+    )
+    @classmethod
+    def _empty_is_unset(cls, v: object) -> object:
+        # An empty KEY= line in .env means "not configured", never an empty credential.
+        return None if isinstance(v, str) and v.strip() == "" else v
+
     @property
     def mock_adapter_list(self) -> list[str]:
         return [a.strip() for a in self.mock_adapters.split(",") if a.strip()]
@@ -183,6 +203,8 @@ class LlmModels(_Strict):
     triage: str
     analysis: str
     synthesis: str
+    synthesis_shadow: str | None = None
+    synthesis_shadow_sample_rate: Decimal = Field(default=Decimal(0), ge=0, le=1)
 
 
 class Llm(_Strict):

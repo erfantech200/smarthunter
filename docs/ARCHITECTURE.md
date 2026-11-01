@@ -25,13 +25,17 @@ Phase 11 adds Caddy (TLS) and the private-access layer. Until then, every port b
 | Key / channel | Writer → reader | Phase |
 |---|---|---|
 | `desk:heartbeat:<service>` | every service → api / healthchecks | 0 ✅ |
-| `stream:ticks:<asset>` (Redis Stream) | stream → fast, A10 | 1 |
-| `stream:bars:<asset>:<tf>` (Redis Stream, closed bars) | stream → fast, scheduler (candle-close triggers) | 1 |
-| `desk:stream:status` | stream watchdog → fast (halts on CRITICAL), api | 1 |
+| `stream:ticks:<asset>` (Redis Stream) | stream → fast, A10 | 1 ✅ |
+| `stream:bars:<asset>:<tf>` (Redis Stream, closed bars) | stream → fast, scheduler (candle-close triggers) | 1 ✅ |
+| `desk:stream:status` | stream watchdog → fast (halts on CRITICAL), api | 1 ✅ |
 | `desk:snapshot:<asset>` (signed JSON, `valid_until`) | A9 / revocations → fast | 7 |
 | `desk:kill:<asset>` / `desk:kill:all` | A1 breaking news, A0 → fast | 7–8 |
 | `pub:alerts` | fast, A9, A10 → notifier, api SSE | 3, 8 |
 | Arq queue `arq:queue` | scheduler, api → worker | 0 ✅ |
+| `desk:quote:<asset>` (latest quote) | stream → api, cross-check, A10 | 1 ✅ |
+| `desk:crosscheck:<asset>` | worker → integrity gate | 1 ✅ |
+| `desk:integrity` | worker (every minute) → api, UI | 1 ✅ |
+| `desk:outlier_requests` / `desk:outlier:<asset>:resolution` | stream → scheduler → worker → stream | 1 ✅ |
 
 ## Storage (SPEC §18)
 - Postgres is the system of record. Time series (`ticks`, `candles`, `features`) are hypertables with compression and retention policies.

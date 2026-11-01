@@ -3,7 +3,7 @@
 A private, single-user web app that researches gold, silver, EUR/USD, GBP/USD, USD/JPY, WTI and Brent with a chain of agents, and produces trade plans, fast signals or explicit NO_TRADE/WAIT. **Decision support only. Not financial advice.** The owner places trades manually at a broker and logs them in My Book.
 
 - **Source of truth:** `SPEC.md` (read it before any phase). The plan and status are in `docs/PLAN.md`, and decisions in `docs/DECISIONS.md` (ADR style; add one for every non-obvious choice).
-- **Current phase:** Phase 0 is done and awaiting owner approval. Write no feature code before approval (SPEC §24.1).
+- **Current phase:** Phase 1 (market data) code is done and tested offline. Its live checks wait for the owner's keys (docs/PLAN.md). Phase 0 decisions are recorded in PLAN.md and ADR-012/013.
 
 ## Hard rules (SPEC §21) — never break these
 1. LLMs never compute or invent numbers. Code computes. LLMs refer to levels by ID.
@@ -35,6 +35,9 @@ The backend runs locally with `cd backend && uv run pytest`. Python 3.12 is mana
   - `api/main.py`: FastAPI, with `/health`, `/health/ready`, `/health/services` and `/health/config`.
   - `worker.py` (Arq), `orchestrator/scheduler.py`, `stream/feed_consumer.py`, `fast/engine.py`: one process each.
 - `config/desk.yaml`: the USER CONFIG (SPEC §2), validated strictly. Unknown keys fail.
+- `config/market.yaml` (sources, hours, sessions, integrity thresholds) and `config/broker_profiles/*.yaml` (specs; `confirmed: false` until the owner checks them).
+- Market data: `app/data/` (models, timeframes, adapters, store, backfill, gaps, spreads, reconcile, jobs, cli), `app/stream/` (feed consumer, bar builder, watchdog), `app/orchestrator/` (market hours, holidays, integrity, schedule, scheduler).
+- Tests: `backend/tests/`. `test_db.py` needs a TimescaleDB (`TEST_DATABASE_URL`, default is the compose db's `desk_test` database) and is skipped when it is unreachable. Synthetic data lives only in `tests/factories.py` and `tests/stream_recordings/synthetic_*`.
 - `frontend/`: Next.js App Router + TS + Tailwind 4. Talks to the API via `API_INTERNAL_URL`.
 - `infra/`: docker-compose, scripts (`estimate_llm_cost.py`).
 - `docs/`: PLAN, ARCHITECTURE, AGENTS, STYLES, PROVIDERS, DECISIONS, RUNBOOK, COSTS. Keep them current.

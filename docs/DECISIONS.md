@@ -37,9 +37,9 @@ Format: context → decision → consequences. Status is **Accepted** (in effect
 **Context.** Only `api` and `web` have HTTP ports. The worker, scheduler, stream and fast services need health checks too.
 **Decision.** Each long-running service writes `desk:heartbeat:<service>` (JSON with status and detail, 30-second TTL) every 10 seconds. The Docker healthcheck runs `python -m app.core.heartbeat <service>`, and `GET /health/services` aggregates them, returning 503 if any are missing. The status vocabulary is `ok | idle | halted | degraded`. **`halted` is the correct state for the fast engine whenever it has no healthy stream or no valid snapshot** (hard rule 4).
 
-## ADR-006 — Primary price feed: OANDA v20 practice account (**Proposed** — needs your approval)
+## ADR-006 — Primary price feed: OANDA v20 practice account (Accepted 2026-11-01, approved by the owner)
 **Context.** SPEC §10 needs a broker-neutral real-time bid/ask stream for all 7 instruments, history, and a second source. See PROVIDERS.md.
-**Decision (proposed).** OANDA v20 practice streaming + candles as the primary feed. Twelve Data (free Basic) as the REST cross-check source. Dukascopy ticks for tick-replay backtests.
+**Decision.** OANDA v20 practice streaming + candles as the primary feed. Twelve Data (free Basic) as the REST cross-check source. Dukascopy ticks for tick-replay backtests.
 **Why.** It's free, covers all 7 instruments including both oil benchmarks, offers bid/ask in both stream and candles, and is available in Australia. Every paid alternative still needs a second vendor for oil.
 **Trade-offs.**
 - The stream is throttled (about 250 ms per instrument), so bar high/low can differ from OANDA's own candles. Phase 1 states a tolerance.
@@ -78,3 +78,38 @@ Scalps lean on technical structure and proven edge, and fundamentals act mainly 
 
 ## ADR-011 — Statically enforced hard rules (Accepted)
 `backend/tests/test_architecture.py` fails CI if `app/fast` imports an LLM client or agent code (hard rule 3), or if order or trade endpoint names appear anywhere in `app/` (hard rule 6). Further structural checks are added as the code grows. For example: no `float` in `app/books`, and `app/agents` gets no write access to My Book.
+
+## ADR-012 — Hosting: EU VPS (London/Frankfurt) + Tailscale (Accepted 2026-11-01, approved by the owner)
+The VPS sits close to the FX liquidity and the price feed. It's cheaper than Sydney for the same specs, and alert latency to the phone is dominated by push delivery either way. Private access is through **Tailscale**, plus app login with TOTP (Phase 11). All compose ports stay on `127.0.0.1` until then.
+
+## ADR-013 — A9 synthesis starts on Sonnet, with an Opus shadow sample (Accepted 2026-11-01, approved by the owner)
+- `llm.models.synthesis = claude-sonnet-5-5`.
+- `synthesis_shadow = claude-opus-5-5` at `synthesis_shadow_sample_rate = 0.1`. The shadow output is stored and scored by A11, but never shown or acted on.
+- Promotion to Opus requires A11 evidence and the owner's approval.
+- The monthly cap is $250. COSTS.md shows that the spec cadence exceeds it on current estimates, and Phase 5 re-plans the cadence from measured tokens.
+
+## ADR-014 — Bar alignment follows OANDA's candle convention (Accepted, Phase 1)
+- M1–H1 align to clock boundaries.
+- H4 and D1 align to 17:00 America/New_York in **wall time** (`dailyAlignment=17`).
+- W1 starts Friday 17:00 New York (`weeklyAlignment=Friday`).
+
+Bars are stamped with `open_time` and become visible at `close_time`, which is what every point-in-time reader filters on. The OANDA adapter raises `CandleAlignmentError` if a provider candle doesn't start on our boundary, so a wrong assumption fails loudly in the first backfill instead of corrupting data. D1 bars across a US DST change are 23 or 25 hours long, and that is deliberate.
+
+## ADR-015 — What is stored, and for how long (Accepted, Phase 1)
+- **`candles`** (provider bars `source=oanda`, live-built bars `source=stream`) are kept forever and compressed after 60 days. Both sources are stored so the reconciliation can compare them.
+- **`ticks`** (live stream quotes) are kept for 90 days and compressed after 2 days. They're used for MFE/MAE, replay recordings and A10. Long tick history for backtests comes from Dukascopy files, not from the database.
+- **Redis streams** are capped: 20k ticks and 5k bars per key.
+
+## ADR-016 — Live-vs-provider reconciliation uses tolerances (Accepted, Phase 1)
+The OANDA stream sends at most about 4 updates per second, so intra-minute extremes can be missed. The Phase 1 DoD "live bars match the provider's bars" is therefore measured as:
+- at least 95% of M1 closes match exactly;
+- at least 99% of highs/lows within 1 × typical spread.
+
+Thresholds are in `config/market.yaml → reconciliation`, and the result is stored as a `reconciliation` report.
+
+## ADR-017 — Outlier ticks are flagged, never dropped or edited (Accepted, Phase 1)
+A move larger than 8 × ATR(M1, 14) marks the instrument DEGRADED and triggers an immediate Twelve Data check.
+- If the second source confirms it, the flag clears.
+- If it disagrees, the flag stays, with the reason.
+
+The price itself is kept as received. We never silently alter provider data (SPEC §3.7). Consumers see the degraded status and lower that pillar's reliability.
