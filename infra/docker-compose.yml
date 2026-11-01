@@ -1,0 +1,107 @@
+# Trade Desk — local / single-VPS stack (SPEC §20). Run via `make up` from the repo root.
+# Ports are bound to 127.0.0.1 only: the Desk is private (Tailscale/Cloudflare Access + TOTP in Phase 11).
+name: trade-desk
+
+x-backend: &backend
+  build:
+    context: ..
+    dockerfile: backend/Dockerfile
+  image: trade-desk-backend:dev
+  env_file: ../.env
+  environment:
+    DATABASE_URL: postgresql+asyncpg://desk:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/desk
+    REDIS_URL: redis://redis:6379/0
+  restart: unless-stopped
+  depends_on:
+    db: { condition: service_healthy }
+    redis: { condition: service_healthy }
+    migrate: { condition: service_completed_successfully }
+
+services:
+  db:
+    # TimescaleDB HA image ships pgvector as well (SPEC §18).
+    image: timescale/timescaledb-ha:pg17
+    environment:
+      POSTGRES_USER: desk
+      POSTGRES_DB: desk
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes: [pgdata:/home/postgres/pgdata/data]
+    ports: ["127.0.0.1:5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U desk -d desk"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  migrate:
+    <<: *backend
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      db: { condition: service_healthy }
+
+  api:
+    <<: *backend
+    ports: ["127.0.0.1:8000:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    <<: *backend
+    command: ["arq", "app.worker.WorkerSettings"]
+    healthcheck: &hb
+      test: ["CMD", "python", "-m", "app.core.heartbeat", "worker"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  scheduler:
+    <<: *backend
+    command: ["python", "-m", "app.orchestrator.scheduler"]
+    healthcheck: { <<: *hb, test: ["CMD", "python", "-m", "app.core.heartbeat", "scheduler"] }
+
+  stream:
+    <<: *backend
+    command: ["python", "-m", "app.stream.feed_consumer"]
+    healthcheck: { <<: *hb, test: ["CMD", "python", "-m", "app.core.heartbeat", "stream"] }
+
+  fast:
+    <<: *backend
+    command: ["python", "-m", "app.fast.engine"]
+    healthcheck: { <<: *hb, test: ["CMD", "python", "-m", "app.core.heartbeat", "fast"] }
+
+  web:
+    build:
+      context: ../frontend
+    image: trade-desk-web:dev
+    environment:
+      API_INTERNAL_URL: http://api:8000
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:

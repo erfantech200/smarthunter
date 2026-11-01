@@ -1,0 +1,94 @@
+# Desk configuration — the USER CONFIG from SPEC.md §2, validated at startup by
+# backend/app/core/config.py (DeskConfig). Secrets never go here; they live in .env.
+# Every change to this file will be versioned in `config_versions` once the DB layer exists (Phase 1+).
+
+project_name: trade-desk
+owner_timezone: Australia/Melbourne
+report_language: en            # en | fa
+
+assets:
+  - { symbol: XAUUSD, name: "Gold",            asset_class: metal,  quote_ccy: USD }
+  - { symbol: XAGUSD, name: "Silver",          asset_class: metal,  quote_ccy: USD }
+  - { symbol: EURUSD, name: "EUR/USD",         asset_class: fx,     quote_ccy: USD }
+  - { symbol: GBPUSD, name: "GBP/USD",         asset_class: fx,     quote_ccy: USD }
+  - { symbol: USDJPY, name: "USD/JPY",         asset_class: fx,     quote_ccy: JPY }
+  - { symbol: WTI,    name: "Crude oil WTI",   asset_class: energy, quote_ccy: USD }
+  - { symbol: BRENT,  name: "Crude oil Brent", asset_class: energy, quote_ccy: USD }
+
+broker: undecided              # no broker API, ever (SPEC §3.10)
+market_data_provider: tbd      # Phase 0 recommendation: oanda_v20 (see docs/PROVIDERS.md) — awaiting approval
+
+styles:
+  scalp:
+    enabled: true
+    mode: shadow
+    timeframes: { higher: M15, middle: M5, lower: M1 }
+    risk_multiplier: 0.25
+    sessions: [london_open, london_ny_overlap, tokyo_open]
+    max_trades_per_session: 5
+    max_consecutive_losses_per_session: 2
+    max_cost_to_tp1: 0.15
+    signal_validity_minutes: 3
+    max_hold_minutes: 60
+  intraday:
+    enabled: true
+    mode: live_alerts
+    timeframes: { higher: H1, middle: M15, lower: M5 }
+    risk_multiplier: 0.5
+    max_cost_to_tp1: 0.10
+    signal_validity_minutes: 30
+    max_hold_hours: 12
+  swing:
+    enabled: true
+    mode: live_alerts
+    timeframes: { higher: D1, middle: H4, lower: H1 }
+    risk_multiplier: 1.0
+    max_hold_days: 15
+  position:
+    enabled: true
+    mode: live_alerts
+    timeframes: { higher: W1, middle: D1, lower: H4 }
+    risk_multiplier: 1.0
+    max_hold_weeks: 12
+
+execution:
+  delay_seconds_default: 20
+
+account:
+  base_currency: USD
+  starting_balance: null       # OPEN QUESTION (Phase 0) — required before My Book goes live (Phase 3)
+  risk_per_trade_pct: 0.5
+  max_open_risk_pct: 2.0
+  max_daily_loss_pct: 2.0
+  max_daily_scalp_loss_pct: 1.0
+  max_weekly_drawdown_pct: 5.0
+  max_consecutive_losses: 3
+  cooldown_hours: 24
+  leverage:
+    fx_major: 30
+    gold: 20
+    other_commodities: 10
+  min_reward_risk: { scalp: 1.2, intraday: 1.5, swing: 2.0, position: 2.5 }
+
+schedule:
+  news_cycle: "every 2h"
+  full_pipeline_runs: [weekly_open, pre_tokyo, pre_london, pre_new_york]
+  lead_minutes: 45
+  quiet_hours: "01:00-07:00"   # OPEN QUESTION: overlaps most of the London/NY overlap in Melbourne time (docs/PLAN.md §Open questions)
+  reconcile_prompt: daily
+
+notifications:
+  telegram: true
+  web_push: true
+  email_digest: daily
+
+llm:
+  provider: anthropic
+  models:                      # verified against the Anthropic model list on 2026-11-01 (docs/PROVIDERS.md)
+    triage: claude-haiku-5-5
+    analysis: claude-sonnet-5-5
+    synthesis: claude-opus-5-5
+  monthly_budget_usd: null     # OPEN QUESTION (Phase 0) — hard cap; see docs/COSTS.md for options
+
+data_budget_usd_month: null    # OPEN QUESTION (Phase 0) — see docs/PROVIDERS.md for options
+hosting: vps_docker
